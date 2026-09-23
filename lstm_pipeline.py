@@ -7,8 +7,14 @@ import re
 
 import torch
 from torch import nn
+import nltk
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
+
+# Download required NLTK tokenizer resources
+nltk.download("punkt_tab", quiet=True)
+nltk.download("punkt", quiet=True)
+nltk.download("wordnet", quiet=True)
 
 _lemmatizer = WordNetLemmatizer()
 
