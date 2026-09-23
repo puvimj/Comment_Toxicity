@@ -703,10 +703,7 @@ DEVICE = "cpu"
 @st.cache_resource
 def get_model():
     candidates = [
-        "notebook\\toxicity_checkpoint.pth",
-        "notebook/toxicity_checkpoint.pth",
-        "saved_models/toxicity_lstm_checkpoint.pth",
-        "toxicity_checkpoint.pth"
+        "notebook/toxicity_checkpoint.pth"
     ]
     for p in candidates:
         if os.path.exists(p):
@@ -777,12 +774,29 @@ LABEL_COLORS = {
 
 
 def predict_single(text: str) -> float:
-    if model is not None:
-        try:
-            return predict_proba(model, checkpoint, [text], device=DEVICE)[0]
-        except Exception:
-            pass
-    return 0.05
+
+    if model is None:
+        raise RuntimeError("Model was not loaded.")
+
+    cleaned = get_clean_text(text)
+
+    st.write("DEBUG — cleaned text:", cleaned)
+
+    try:
+        prob = predict_proba(
+            model,
+            checkpoint,
+            [text],
+            device=DEVICE
+        )[0]
+
+        st.write("DEBUG — model probability:", prob)
+
+        return prob
+
+    except Exception as e:
+        st.error(f"Prediction error: {e}")
+        raise
 
 
 def predict_many(texts: pd.Series) -> np.ndarray:
