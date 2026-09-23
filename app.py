@@ -774,39 +774,38 @@ LABEL_COLORS = {
 
 
 def predict_single(text: str) -> float:
-
     if model is None:
         raise RuntimeError("Model was not loaded.")
 
-    cleaned = get_clean_text(text)
-
-    st.write("DEBUG — cleaned text:", cleaned)
-
     try:
-        prob = predict_proba(
+        probability = predict_proba(
             model,
             checkpoint,
             [text],
             device=DEVICE
         )[0]
 
-        st.write("DEBUG — model probability:", prob)
-
-        return prob
+        return float(probability)
 
     except Exception as e:
-        st.error(f"Prediction error: {e}")
-        raise
-
+        raise RuntimeError(f"Prediction failed: {e}") from e
 
 def predict_many(texts: pd.Series) -> np.ndarray:
-    if model is not None:
-        try:
-            return np.array(predict_proba(model, checkpoint, texts.astype(str).tolist(), device=DEVICE))
-        except Exception:
-            pass
-    return np.zeros(len(texts))
+    if model is None:
+        raise RuntimeError("Model was not loaded.")
 
+    try:
+        probabilities = predict_proba(
+            model,
+            checkpoint,
+            texts.astype(str).tolist(),
+            device=DEVICE
+        )
+
+        return np.array(probabilities, dtype=float)
+
+    except Exception as e:
+        raise RuntimeError(f"Bulk prediction failed: {e}") from e
 
 def render_kpi_row(items: list[dict]) -> str:
     """items: [{icon, icon_bg, icon_color, label, value, delta(optional), delta_kind('up'/'flat')}]"""
