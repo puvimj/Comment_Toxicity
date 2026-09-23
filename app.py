@@ -1062,14 +1062,13 @@ with tab2:
         with st.spinner("Running LSTM inference..."):
             prob = predict_single(comment)
 
-        if prob >= threshold:
-            st.error(f"⚠️ Flagged as **potentially toxic** — score {prob*100:.1f}%")
-        else:
-            st.success(f"✅ Looks **clean** — score {prob*100:.1f}%")
-        st.progress(min(max(prob, 0.0), 1.0))
+            st.write("DEBUG probability:", prob)
+            st.write("DEBUG cleaned text:", get_clean_text(comment))
 
-        with st.expander("See cleaned/tokenized text sent to the model"):
-            st.code(get_clean_text(comment))
+            if prob >= threshold:
+                st.error(f"⚠️ Flagged as **potentially toxic** — score {prob*100:.1f}%")
+            else:
+                st.success(f"✅ Looks **clean** — score {prob*100:.1f}%")
     elif not comment.strip():
         st.info("Enter a comment above and click **Analyze Comment**.")
 
