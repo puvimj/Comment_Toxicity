@@ -8,8 +8,8 @@ Tabs:
   3. Bulk Prediction        — upload a CSV, score every row, download results
 
 Model: PyTorch LSTM (binary is_toxic classifier), trained by running
-eda.ipynb. A vanilla RNN was trained alongside it for comparison; the better model
-(by F1) was picked for deployment — see the "Architecture Comparison"
+eda.ipynb. A vanilla RNN was trained alongside it for comparison; the LSTM model was selected for deployment based on validation performance.
+— see the "Architecture Comparison"
 section in the Insights tab.
 """
 import base64
@@ -702,21 +702,37 @@ DEVICE = "cpu"
 # --------------------------------------------------------------------------
 @st.cache_resource
 def get_model():
+
     candidates = [
-        "notebook/toxicity_checkpoint.pth"
+        "toxicity_lstm_attention.pth",
+        "notebook/toxicity_lstm_attention.pth"
     ]
+
     for p in candidates:
+
         if os.path.exists(p):
-            return load_checkpoint(p, device=DEVICE)
-    try:
-        return load_checkpoint("notebook\\toxicity_checkpoint.pth", device=DEVICE)
-    except Exception:
-        return None, {"model_type": "LSTM"}
+
+            try:
+                return load_checkpoint(
+                    p,
+                    device=DEVICE
+                )
+
+            except Exception as e:
+                raise RuntimeError(
+                    f"Could not load checkpoint '{p}': {e}"
+                ) from e
+
+    raise FileNotFoundError(
+        "toxicity_lstm_v2.pth was not found. "
+        "Please place the new checkpoint in the project folder, "
+        "notebook folder."
+    )
 
 
 @st.cache_data
 def load_metrics():
-    candidates = ["metrics.json", "saved_models/metrics.json"]
+    candidates = ["metrics.json", "notebook/metrics.json"]
     for p in candidates:
         if os.path.exists(p):
             with open(p, "r", encoding="utf-8") as f:
@@ -729,7 +745,7 @@ def load_metrics():
 
 @st.cache_data
 def load_sample_cases():
-    candidates = ["sample_cases.json", "saved_models/sample_cases.json"]
+    candidates = ["sample_cases.json", "notebook/sample_cases.json"]
     for p in candidates:
         if os.path.exists(p):
             with open(p, "r", encoding="utf-8") as f:
@@ -742,7 +758,7 @@ def load_sample_cases():
 
 @st.cache_data
 def load_train_stats():
-    candidates = ["train_stats.json", "saved_models/train_stats.json"]
+    candidates = ["train_stats.json", "notebook/train_stats.json"]
     for p in candidates:
         if os.path.exists(p):
             with open(p, "r", encoding="utf-8") as f:
@@ -774,10 +790,12 @@ LABEL_COLORS = {
 
 
 def predict_single(text: str) -> float:
+
     if model is None:
         raise RuntimeError("Model was not loaded.")
 
     try:
+
         probability = predict_proba(
             model,
             checkpoint,
@@ -788,13 +806,19 @@ def predict_single(text: str) -> float:
         return float(probability)
 
     except Exception as e:
-        raise RuntimeError(f"Prediction failed: {e}") from e
+
+        raise RuntimeError(
+            f"Prediction failed: {e}"
+        ) from e
+
 
 def predict_many(texts: pd.Series) -> np.ndarray:
+
     if model is None:
         raise RuntimeError("Model was not loaded.")
 
     try:
+
         probabilities = predict_proba(
             model,
             checkpoint,
@@ -802,10 +826,17 @@ def predict_many(texts: pd.Series) -> np.ndarray:
             device=DEVICE
         )
 
-        return np.array(probabilities, dtype=float)
+        return np.array(
+            probabilities,
+            dtype=float
+        )
 
     except Exception as e:
-        raise RuntimeError(f"Bulk prediction failed: {e}") from e
+
+        raise RuntimeError(
+            f"Bulk prediction failed: {e}"
+        ) from e
+
 
 def render_kpi_row(items: list[dict]) -> str:
     """items: [{icon, icon_bg, icon_color, label, value, delta(optional), delta_kind('up'/'flat')}]"""
@@ -978,38 +1009,120 @@ with tab1:
     st.subheader("Architecture Comparison: LSTM vs. RNN")
     st.caption(
         "Both architectures were trained on the same data/split for the same "
-        "number of epochs; the better model (by F1) was deployed above."
+        "number of epochs. The LSTM was selected for deployment based on "
+        "validation loss, with packed-sequence handling."
     )
-    comp_rows = []
-    for arch, data in metrics["architecture_comparison"].items():
-        f = data["final"]
-        comp_rows.append({"Architecture": arch, "Accuracy": f["accuracy"], "Precision": f["precision"],
-                           "Recall": f["recall"], "F1": f["f1"], "ROC-AUC": f["roc_auc"]})
-    comp_df = pd.DataFrame(comp_rows).set_index("Architecture")
-    st.dataframe(comp_df.style.format("{:.3f}").background_gradient(cmap="Blues", subset=["F1", "ROC-AUC"]),
-                 width='stretch')
 
+    # Current model metrics
+    f = metrics["is_toxic"]
+
+    comp_df = pd.DataFrame([{
+        "Architecture": "LSTM + Attention",
+        "Accuracy": f["accuracy"],
+        "Precision": f["precision"],
+        "Recall": f["recall"],
+        "F1": f["f1"],
+        "ROC-AUC": f["roc_auc"]
+    }]).set_index("Architecture")
+
+    st.dataframe(
+        comp_df.style.format("{:.3f}")
+        .background_gradient(
+            cmap="Blues",
+            subset=["F1", "ROC-AUC"]
+        ),
+        width="stretch"
+    )
+
+    # with st.container(border=True):
+    #     st.markdown('<div class="chart-card-title">Training Curves</div>'
+    #                 '<div class="chart-card-sub">Validation loss and F1 per epoch, by architecture</div>',
+    #                 unsafe_allow_html=True)
+    #     hist_fig, axes = plt.subplots(1, 2, figsize=(10.4, 3.6), dpi=150)
+    #     arch_colors = {"LSTM": "#2563eb", "RNN": "#f59e0b"}
+    #     for arch, data in metrics["architecture_comparison"].items():
+    #         hist_df = pd.DataFrame(data["history"])
+    #         color = arch_colors.get(arch, "#7c3aed")
+    #         axes[0].plot(hist_df["epoch"], hist_df["val_loss"], marker="o",
+    #                      markersize=4, linewidth=2, label=arch, color=color)
+    #         axes[1].plot(hist_df["epoch"], hist_df["f1"], marker="o",
+    #                      markersize=4, linewidth=2, label=arch, color=color)
+    #     axes[0].set_title("Validation Loss per Epoch")
+    #     axes[0].set_xlabel("Epoch")
+    #     axes[0].legend()
+    #     axes[1].set_title("Validation F1 per Epoch")
+    #     axes[1].set_xlabel("Epoch")
+    #     axes[1].legend()
+    #     hist_fig.tight_layout()
+    #     st.pyplot(hist_fig, width='stretch')
     with st.container(border=True):
-        st.markdown('<div class="chart-card-title">Training Curves</div>'
-                    '<div class="chart-card-sub">Validation loss and F1 per epoch, by architecture</div>',
-                    unsafe_allow_html=True)
-        hist_fig, axes = plt.subplots(1, 2, figsize=(10.4, 3.6), dpi=150)
-        arch_colors = {"LSTM": "#2563eb", "RNN": "#f59e0b"}
-        for arch, data in metrics["architecture_comparison"].items():
-            hist_df = pd.DataFrame(data["history"])
-            color = arch_colors.get(arch, "#7c3aed")
-            axes[0].plot(hist_df["epoch"], hist_df["val_loss"], marker="o",
-                         markersize=4, linewidth=2, label=arch, color=color)
-            axes[1].plot(hist_df["epoch"], hist_df["f1"], marker="o",
-                         markersize=4, linewidth=2, label=arch, color=color)
-        axes[0].set_title("Validation Loss per Epoch")
-        axes[0].set_xlabel("Epoch")
-        axes[0].legend()
-        axes[1].set_title("Validation F1 per Epoch")
-        axes[1].set_xlabel("Epoch")
-        axes[1].legend()
-        hist_fig.tight_layout()
-        st.pyplot(hist_fig, width='stretch')
+
+        st.markdown(
+            '<div class="chart-card-title">Training Curves</div>'
+            '<div class="chart-card-sub">'
+            'Validation loss and F1 per epoch for the Attention LSTM'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        HISTORY_PATH = "notebook/train_history.json"
+
+        if os.path.exists(HISTORY_PATH):
+
+            with open(HISTORY_PATH, "r") as f:
+                history = json.load(f)
+
+            hist_df = pd.DataFrame(history)
+
+            hist_fig, axes = plt.subplots(
+                1, 2,
+                figsize=(10.4, 3.6),
+                dpi=150
+            )
+
+            # Validation Loss
+            axes[0].plot(
+                hist_df["epoch"],
+                hist_df["val_loss"],
+                marker="o",
+                markersize=4,
+                linewidth=2,
+                label="Attention LSTM"
+            )
+
+            axes[0].set_title("Validation Loss per Epoch")
+            axes[0].set_xlabel("Epoch")
+            axes[0].set_ylabel("Validation Loss")
+            axes[0].legend()
+
+            # F1 Score
+            axes[1].plot(
+                hist_df["epoch"],
+                hist_df["f1"],
+                marker="o",
+                markersize=4,
+                linewidth=2,
+                label="Attention LSTM"
+            )
+
+            axes[1].set_title("Validation F1 per Epoch")
+            axes[1].set_xlabel("Epoch")
+            axes[1].set_ylabel("F1 Score")
+            axes[1].legend()
+
+            hist_fig.tight_layout()
+
+            st.pyplot(
+                hist_fig,
+                width="stretch"
+            )
+
+        else:
+
+            st.warning(
+                "Training history file not found: "
+                "notebook/train_history.json"
+            )
 
     st.divider()
     st.subheader("Sample Test Cases")
@@ -1043,35 +1156,102 @@ with tab1:
 # TAB 2 — REAL-TIME PREDICTION
 # ==========================================================================
 with tab2:
-    st.markdown('<div class="section-kicker">Real-Time Analysis</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="section-kicker">Real-Time Analysis</div>',
+        unsafe_allow_html=True
+    )
+
     st.subheader("Check a comment for toxicity")
-    st.caption("Enter text below and let the LSTM estimate the probability that it is toxic.")
+
+    st.caption(
+        "Enter text below and let the LSTM estimate the probability "
+        "that it is toxic."
+    )
 
     default_examples = {
         "-- Type your own --": "",
-        "Example: friendly comment": "Thanks for fixing the typo, great catch!",
-        "Example: mildly rude": "This article is garbage and whoever wrote it is an idiot.",
-        "Example: threatening": "I know where you live and you'll regret this.",
+        "Example: friendly comment":
+            "Thanks for fixing the typo, great catch!",
+        "Example: mildly rude":
+            "This article is garbage and whoever wrote it is an idiot.",
+        "Example: threatening":
+            "I know where you live and you'll regret this.",
     }
-    choice = st.selectbox("Quick-fill an example (optional):", list(default_examples.keys()))
-    comment = st.text_area("Enter a comment", value=default_examples[choice], height=140,
-                            placeholder="Type or paste a comment here...")
-    threshold = st.slider("Decision threshold (probability ≥ this = flagged)", 0.0, 1.0, 0.5, 0.05)
 
-    if st.button("Analyze Comment", type="primary", disabled=not comment.strip()):
-        with st.spinner("Running LSTM inference..."):
-            prob = predict_single(comment)
+    # Quick-fill is outside the form
+    choice = st.selectbox(
+        "Quick-fill an example (optional):",
+        list(default_examples.keys())
+    )
 
-            st.write("DEBUG probability:", prob)
-            st.write("DEBUG cleaned text:", get_clean_text(comment))
+    # ----------------------------------------------------------------------
+    # Form
+    # ----------------------------------------------------------------------
+    with st.form("real_time_prediction_form"):
+
+        comment = st.text_area(
+            "Enter a comment",
+            value=default_examples[choice],
+            height=140,
+            placeholder="Type or paste a comment here..."
+        )
+
+        threshold = st.slider(
+            "Decision threshold (probability ≥ this = flagged)",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.5,
+            step=0.05
+        )
+
+        analyze_clicked = st.form_submit_button(
+            "Analyze Comment",
+            type="primary"
+        )
+
+    # ----------------------------------------------------------------------
+    # Prediction
+    # ----------------------------------------------------------------------
+    if analyze_clicked:
+
+        if not comment.strip():
+
+            st.info(
+                "Enter a comment above and click **Analyze Comment**."
+            )
+
+        else:
+
+            with st.spinner("Running LSTM inference..."):
+
+                prob = predict_single(comment)
 
             if prob >= threshold:
-                st.error(f"⚠️ Flagged as **potentially toxic** — score {prob*100:.1f}%")
-            else:
-                st.success(f"✅ Looks **clean** — score {prob*100:.1f}%")
-    elif not comment.strip():
-        st.info("Enter a comment above and click **Analyze Comment**.")
 
+                st.error(
+                    f"⚠️ Flagged as **potentially toxic** — "
+                    f"score {prob * 100:.1f}%"
+                )
+
+            else:
+
+                st.success(
+                    f"✅ Looks **clean** — "
+                    f"score {prob * 100:.1f}%"
+                )
+
+            st.progress(
+                min(max(prob, 0.0), 1.0)
+            )
+
+            with st.expander(
+                "See cleaned/tokenized text sent to the model"
+            ):
+
+                st.code(
+                    get_clean_text(comment)
+                )
 # ==========================================================================
 # TAB 3 — BULK PREDICTION VIA CSV UPLOAD
 # ==========================================================================
